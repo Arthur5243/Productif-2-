@@ -64,7 +64,11 @@ function systemPrompt(today) {
 
 Règles :
 - Identifie une ou plusieurs activités distinctes dans le texte.
-- Pour chaque activité, écris un titre court, clair et bien formulé (regroupe les éléments similaires entre parenthèses si utile, ex: "Muscu (traction/pompes/boxe)"), en supprimant complètement les hésitations et mots de remplissage ("euh", "du coup", "je crois", "enfin", "voilà", "ouais").
+- Pour chaque activité, écris un vrai titre : une phrase qui condense TOUT le contenu utile (quoi, avec qui, détails importants), lisible et comprise en une seconde.
+  - Si le texte source est court, le titre reste court.
+  - Si le texte source est un pavé long ou dense (plusieurs détails, sous-tâches, précisions), le titre peut être une phrase assez longue — ne coupe jamais une information importante juste pour faire court. Mieux vaut une phrase longue mais complète qu'un titre court qui perd du sens.
+  - Regroupe les éléments similaires entre parenthèses si ça aide à la lisibilité (ex: "Muscu (traction/pompes/boxe)").
+  - Supprime complètement les hésitations et mots de remplissage ("euh", "du coup", "je crois", "enfin", "voilà", "ouais") et reformule en français correct et naturel.
 - Détermine la date (YYYY-MM-DD) et l'heure (HH:MM) si mentionnées. Si aucune date n'est donnée, utilise aujourd'hui. Si aucune heure n'est donnée, mets null.
 - Aujourd'hui nous sommes le ${today} (YYYY-MM-DD).
 
