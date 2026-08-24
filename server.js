@@ -15,7 +15,12 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
 // --- Activités (mono-utilisateur, pas de connexion) ---
 app.get('/api/activities', (req, res) => {
-  res.json({ activities: listActivities() });
+  try {
+    res.json({ activities: listActivities() });
+  } catch (e) {
+    console.error('Erreur listActivities:', e);
+    res.status(500).json({ error: e.message || 'Erreur serveur lors du chargement' });
+  }
 });
 
 app.post('/api/activities', (req, res) => {
@@ -23,14 +28,24 @@ app.post('/api/activities', (req, res) => {
   if (!Array.isArray(activities) || activities.length === 0) {
     return res.status(400).json({ error: 'activities (tableau) requis' });
   }
-  const inserted = insertActivities(activities);
-  res.json({ activities: inserted });
+  try {
+    const inserted = insertActivities(activities);
+    res.json({ activities: inserted });
+  } catch (e) {
+    console.error('Erreur insertActivities:', e);
+    res.status(500).json({ error: e.message || 'Erreur serveur lors de la sauvegarde' });
+  }
 });
 
 app.delete('/api/activities/:id', (req, res) => {
-  const ok = deleteActivity(req.params.id);
-  if (!ok) return res.status(404).json({ error: 'Introuvable' });
-  res.json({ ok: true });
+  try {
+    const ok = deleteActivity(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'Introuvable' });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Erreur deleteActivity:', e);
+    res.status(500).json({ error: e.message || 'Erreur serveur lors de la suppression' });
+  }
 });
 
 // --- Résumé IA ---
