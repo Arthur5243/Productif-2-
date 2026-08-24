@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, X, LogOut } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, X } from 'lucide-react';
 import * as chrono from 'chrono-node';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -83,78 +83,16 @@ export default function PlannerApp() {
   const [inputText, setInputText] = useState('');
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const [token, setToken] = useState(() => localStorage.getItem('productif_token'));
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [emailInput, setEmailInput] = useState('');
-  const [loginError, setLoginError] = useState('');
-
-  const authFetch = (path, options = {}) =>
-    fetch(`${API_URL}${path}`, {
-      ...options,
-      headers: {
-        ...(options.headers || {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-    });
-
-  // Vérifie le token stocké au chargement, et récupère les activités si valide
+  // Charge les activités au démarrage (pas de connexion nécessaire)
   useEffect(() => {
-    if (!token) {
-      setAuthLoading(false);
-      return;
-    }
-    authFetch('/api/me')
-      .then((r) => {
-        if (!r.ok) throw new Error('invalid');
-        return r.json();
-      })
-      .then((data) => setUser(data.user))
-      .catch(() => {
-        localStorage.removeItem('productif_token');
-        setToken(null);
-      })
-      .finally(() => setAuthLoading(false));
-  }, [token]);
-
-  useEffect(() => {
-    if (!user) return;
-    authFetch('/api/activities')
+    fetch(`${API_URL}/api/activities`)
       .then((r) => r.json())
       .then((data) => setActivities(data.activities || []))
-      .catch(() => setError('Impossible de charger les activités.'));
-  }, [user]);
-
-  const login = async () => {
-    setLoginError('');
-    const email = emailInput.trim();
-    if (!email.includes('@')) {
-      setLoginError('Entre un email valide.');
-      return;
-    }
-    try {
-      const r = await fetch(`${API_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || 'Connexion impossible');
-      localStorage.setItem('productif_token', data.token);
-      setToken(data.token);
-      setUser(data.user);
-    } catch (e) {
-      setLoginError('Connexion impossible, réessaie.');
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('productif_token');
-    setToken(null);
-    setUser(null);
-    setActivities([]);
-  };
+      .catch(() => setError('Impossible de charger les activités.'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const addActivity = async () => {
     if (!inputText.trim()) return;
@@ -187,7 +125,7 @@ export default function PlannerApp() {
     }
 
     try {
-      const saveRes = await authFetch('/api/activities', {
+      const saveRes = await fetch(`${API_URL}/api/activities`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activities: candidates }),
@@ -208,7 +146,7 @@ export default function PlannerApp() {
     const previous = activities;
     setActivities((prev) => prev.filter((a) => a.id !== id));
     try {
-      const r = await authFetch(`/api/activities/${id}`, { method: 'DELETE' });
+      const r = await fetch(`${API_URL}/api/activities/${id}`, { method: 'DELETE' });
       if (!r.ok) throw new Error();
     } catch (e) {
       setActivities(previous);
@@ -338,50 +276,10 @@ export default function PlannerApp() {
     ? `${weekStart.getDate()} – ${weekEnd.getDate()} ${weekEnd.toLocaleDateString('fr-FR', { month: 'long' })}`
     : `${weekStart.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
 
-  if (authLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center" style={{ background: COLORS.bg }}>
         <Loader2 size={24} className="animate-spin" style={{ color: COLORS.textSecondary }} />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen w-full flex flex-col items-center justify-center gap-6 px-6" style={{ background: COLORS.bg }}>
-        <style>{FONT_IMPORT}</style>
-        <div className="text-center">
-          <div className="text-3xl font-semibold mb-2" style={{ ...displayFont, color: COLORS.textPrimary }}>
-            Productif
-          </div>
-          <p className="text-sm" style={{ color: COLORS.textSecondary }}>
-            Entre ton email pour retrouver tes activités partout.
-          </p>
-        </div>
-        <div className="w-full max-w-xs flex flex-col gap-3">
-          <input
-            type="email"
-            value={emailInput}
-            onChange={(e) => setEmailInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && login()}
-            placeholder="ton@email.com"
-            className="w-full rounded-xl p-3 text-sm outline-none"
-            style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary }}
-            autoFocus
-          />
-          <button
-            onClick={login}
-            className="w-full py-3 rounded-xl text-sm font-medium"
-            style={{ background: COLORS.accent, color: '#101114' }}
-          >
-            Continuer
-          </button>
-        </div>
-        {loginError && (
-          <p className="text-xs text-center" style={{ color: '#FF6B6B' }}>
-            {loginError}
-          </p>
-        )}
       </div>
     );
   }
@@ -390,14 +288,6 @@ export default function PlannerApp() {
     <div className="min-h-screen w-full flex justify-center" style={{ background: COLORS.bg }}>
       <style>{FONT_IMPORT}</style>
       <div className="w-full max-w-md px-5 pt-6 pb-24" style={{ color: COLORS.textPrimary }}>
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs truncate" style={{ color: COLORS.textSecondary }}>
-            {user.email}
-          </span>
-          <button onClick={logout} className="flex items-center gap-1 text-xs" style={{ color: COLORS.textSecondary }}>
-            <LogOut size={13} /> Déconnexion
-          </button>
-        </div>
         <div
           className="flex p-1 rounded-full mb-6"
           style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
