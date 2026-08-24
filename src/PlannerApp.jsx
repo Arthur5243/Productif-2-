@@ -137,7 +137,8 @@ export default function PlannerApp() {
       if (!saveRes.ok) throw new Error(saveData.error || 'Sauvegarde échouée');
       setActivities((prev) => [...prev, ...saveData.activities]);
     } catch (e) {
-      setError("Impossible de sauvegarder sur ton compte, réessaie.");
+      console.error('Erreur sauvegarde activité:', e);
+      setError(e.message || 'Impossible de sauvegarder, réessaie.');
     } finally {
       setInputText('');
       setShowAdd(false);
