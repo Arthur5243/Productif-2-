@@ -1,6 +1,11 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { listActivities, insertActivities, deleteActivity } from './db.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
@@ -77,6 +82,12 @@ app.post('/api/summarize', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: "Erreur lors du résumé" });
   }
+});
+
+// --- Sert le frontend buildé (dist/, généré par `vite build`) ---
+app.use(express.static(path.join(__dirname, 'dist')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;
