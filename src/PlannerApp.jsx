@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, X } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2 } from 'lucide-react';
 import * as chrono from 'chrono-node';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
@@ -17,6 +17,7 @@ const COLORS = {
   dawn: '#4FA8FF',
   day: '#FF9D42',
   dusk: '#C77DFF',
+  danger: '#FF6B6B',
 };
 
 function timeColor(time) {
@@ -82,7 +83,6 @@ export default function PlannerApp() {
   const [view, setView] = useState('day');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [activities, setActivities] = useState([]);
-  const [showAdd, setShowAdd] = useState(false);
   const [inputText, setInputText] = useState('');
   const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -98,7 +98,7 @@ export default function PlannerApp() {
   }, []);
 
   const addActivity = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isProcessing) return;
     setError('');
     setIsProcessing(true);
     const today = formatDateKey(new Date());
@@ -124,9 +124,10 @@ export default function PlannerApp() {
       const segments = splitSegments(inputText);
       const now = new Date();
       candidates = segments.map((seg) => parseActivity(seg, now));
-      setError('Résumé IA indisponible, découpe simple utilisée à la place.');
     }
 
+    // Important : on ne quitte/efface l'input QUE si la sauvegarde réussit,
+    // sinon l'erreur reste affichée et le texte tapé n'est pas perdu.
     try {
       const saveRes = await fetch(`${API_URL}/api/activities`, {
         method: 'POST',
@@ -136,12 +137,11 @@ export default function PlannerApp() {
       const saveData = await saveRes.json();
       if (!saveRes.ok) throw new Error(saveData.error || 'Sauvegarde échouée');
       setActivities((prev) => [...prev, ...saveData.activities]);
+      setInputText('');
     } catch (e) {
       console.error('Erreur sauvegarde activité:', e);
       setError(e.message || 'Impossible de sauvegarder, réessaie.');
     } finally {
-      setInputText('');
-      setShowAdd(false);
       setIsProcessing(false);
     }
   };
@@ -291,7 +291,7 @@ export default function PlannerApp() {
   return (
     <div className="min-h-screen w-full flex justify-center" style={{ background: COLORS.bg }}>
       <style>{FONT_IMPORT}</style>
-      <div className="w-full max-w-md px-5 pt-6 pb-24" style={{ color: COLORS.textPrimary }}>
+      <div className="w-full max-w-md px-5 pt-6 pb-32" style={{ color: COLORS.textPrimary }}>
         <div
           className="flex p-1 rounded-full mb-6"
           style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
@@ -350,67 +350,45 @@ export default function PlannerApp() {
         {view === 'day' ? renderDay() : renderWeek()}
       </div>
 
-      <button
-        onClick={() => setShowAdd(true)}
-        className="fixed bottom-6 right-6 rounded-full p-4 shadow-lg transition-transform active:scale-95"
-        style={{ background: COLORS.accent, color: '#101114', boxShadow: `0 8px 24px ${COLORS.accentSoft}` }}
-      >
-        <Plus size={22} strokeWidth={2.5} />
-      </button>
-
-      {showAdd && (
-        <div
-          className="fixed inset-0 flex items-end justify-center z-50"
-          style={{ background: 'rgba(0,0,0,0.55)' }}
-        >
+      {/* Barre d'ajout fixe en bas : toujours visible, pas de popup */}
+      <div className="fixed bottom-0 inset-x-0 z-50 flex justify-center px-5 pb-6 pt-4 pointer-events-none">
+        <div className="w-full max-w-md flex flex-col gap-2 pointer-events-auto">
+          {error && (
+            <p
+              className="text-xs px-3 py-2 rounded-xl"
+              style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, color: COLORS.danger }}
+            >
+              {error}
+            </p>
+          )}
           <div
-            className="w-full max-w-md p-5 rounded-t-3xl"
-            style={{ background: COLORS.surface, borderTop: `1px solid ${COLORS.border}` }}
+            className="flex items-center gap-2 rounded-2xl pl-4 pr-2 py-2 shadow-lg"
+            style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
           >
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm uppercase tracking-widest" style={displayFont}>
-                Nouvelle activité
-              </h3>
-              <button
-                onClick={() => {
-                  setShowAdd(false);
-                  setInputText('');
-                  setError('');
-                }}
-                style={{ color: COLORS.textSecondary }}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <textarea
+            <input
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Ex : RDV dentiste demain à 15h"
-              className="w-full rounded-xl p-3 mb-3 text-sm outline-none"
-              style={{
-                background: COLORS.surfaceAlt,
-                border: `1px solid ${COLORS.border}`,
-                color: COLORS.textPrimary,
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  addActivity();
+                }
               }}
-              rows={3}
-              autoFocus
+              placeholder="Ex : RDV dentiste demain à 15h"
+              className="flex-1 bg-transparent outline-none text-sm min-w-0"
+              style={{ color: COLORS.textPrimary }}
             />
-            {error && (
-              <p className="text-xs mb-3" style={{ color: '#FF6B6B' }}>
-                {error}
-              </p>
-            )}
             <button
               onClick={addActivity}
               disabled={isProcessing || !inputText.trim()}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-opacity disabled:opacity-40"
+              className="shrink-0 rounded-full p-2.5 transition-opacity disabled:opacity-40 active:scale-95"
               style={{ background: COLORS.accent, color: '#101114' }}
             >
-              {isProcessing ? <Loader2 size={16} className="animate-spin" /> : 'Ajouter'}
+              {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <Plus size={18} strokeWidth={2.5} />}
             </button>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
