@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, ChevronLeft, ChevronRight, Trash2, Loader2, X, LogOut } from 'lucide-react';
 import * as chrono from 'chrono-node';
+
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 const COLORS = {
   bg: '#0B0D11',
@@ -27,6 +29,14 @@ function timeColor(time) {
 
 function formatDateKey(date) {
   return date.toISOString().split('T')[0];
+}
+
+function splitSegments(text) {
+  return text
+    .split(/\n+/)
+    .flatMap((line) => line.split(/\s*(?:,|;|\bet\b|\bpuis\b)\s*/i))
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function parseActivity(text, refDate) {
@@ -72,23 +82,138 @@ export default function PlannerApp() {
   const [showAdd, setShowAdd] = useState(false);
   const [inputText, setInputText] = useState('');
   const [error, setError] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const addActivity = () => {
-    if (!inputText.trim()) return;
-    setError('');
+  const [token, setToken] = useState(() => localStorage.getItem('productif_token'));
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [emailInput, setEmailInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  const authFetch = (path, options = {}) =>
+    fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        ...(options.headers || {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+  // Vérifie le token stocké au chargement, et récupère les activités si valide
+  useEffect(() => {
+    if (!token) {
+      setAuthLoading(false);
+      return;
+    }
+    authFetch('/api/me')
+      .then((r) => {
+        if (!r.ok) throw new Error('invalid');
+        return r.json();
+      })
+      .then((data) => setUser(data.user))
+      .catch(() => {
+        localStorage.removeItem('productif_token');
+        setToken(null);
+      })
+      .finally(() => setAuthLoading(false));
+  }, [token]);
+
+  useEffect(() => {
+    if (!user) return;
+    authFetch('/api/activities')
+      .then((r) => r.json())
+      .then((data) => setActivities(data.activities || []))
+      .catch(() => setError('Impossible de charger les activités.'));
+  }, [user]);
+
+  const login = async () => {
+    setLoginError('');
+    const email = emailInput.trim();
+    if (!email.includes('@')) {
+      setLoginError('Entre un email valide.');
+      return;
+    }
     try {
-      const { title, date, time } = parseActivity(inputText, new Date());
-      const newActivity = { id: Date.now(), title, date, time };
-      setActivities((prev) => [...prev, newActivity]);
-      setInputText('');
-      setShowAdd(false);
+      const r = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Connexion impossible');
+      localStorage.setItem('productif_token', data.token);
+      setToken(data.token);
+      setUser(data.user);
     } catch (e) {
-      setError("Erreur lors de l'analyse, réessaie.");
+      setLoginError('Connexion impossible, réessaie.');
     }
   };
 
-  const deleteActivity = (id) => {
+  const logout = () => {
+    localStorage.removeItem('productif_token');
+    setToken(null);
+    setUser(null);
+    setActivities([]);
+  };
+
+  const addActivity = async () => {
+    if (!inputText.trim()) return;
+    setError('');
+    setIsProcessing(true);
+    const today = formatDateKey(new Date());
+    let candidates;
+
+    try {
+      const response = await fetch(`${API_URL}/api/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: inputText, today }),
+      });
+      const data = await response.json();
+      if (!response.ok || !Array.isArray(data.activities)) {
+        throw new Error(data.error || 'Réponse invalide');
+      }
+      candidates = data.activities.map((a) => ({
+        title: a.title || inputText,
+        date: a.date || today,
+        time: a.time || null,
+      }));
+    } catch (e) {
+      // Secours local si l'IA est indisponible (pas de clé, quota, réseau...)
+      const segments = splitSegments(inputText);
+      const now = new Date();
+      candidates = segments.map((seg) => parseActivity(seg, now));
+      setError('Résumé IA indisponible, découpe simple utilisée à la place.');
+    }
+
+    try {
+      const saveRes = await authFetch('/api/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activities: candidates }),
+      });
+      const saveData = await saveRes.json();
+      if (!saveRes.ok) throw new Error(saveData.error || 'Sauvegarde échouée');
+      setActivities((prev) => [...prev, ...saveData.activities]);
+    } catch (e) {
+      setError("Impossible de sauvegarder sur ton compte, réessaie.");
+    } finally {
+      setInputText('');
+      setShowAdd(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const deleteActivity = async (id) => {
+    const previous = activities;
     setActivities((prev) => prev.filter((a) => a.id !== id));
+    try {
+      const r = await authFetch(`/api/activities/${id}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error();
+    } catch (e) {
+      setActivities(previous);
+      setError('Suppression impossible, réessaie.');
+    }
   };
 
   const goPrev = () => {
@@ -213,10 +338,66 @@ export default function PlannerApp() {
     ? `${weekStart.getDate()} – ${weekEnd.getDate()} ${weekEnd.toLocaleDateString('fr-FR', { month: 'long' })}`
     : `${weekStart.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${weekEnd.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center" style={{ background: COLORS.bg }}>
+        <Loader2 size={24} className="animate-spin" style={{ color: COLORS.textSecondary }} />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center gap-6 px-6" style={{ background: COLORS.bg }}>
+        <style>{FONT_IMPORT}</style>
+        <div className="text-center">
+          <div className="text-3xl font-semibold mb-2" style={{ ...displayFont, color: COLORS.textPrimary }}>
+            Productif
+          </div>
+          <p className="text-sm" style={{ color: COLORS.textSecondary }}>
+            Entre ton email pour retrouver tes activités partout.
+          </p>
+        </div>
+        <div className="w-full max-w-xs flex flex-col gap-3">
+          <input
+            type="email"
+            value={emailInput}
+            onChange={(e) => setEmailInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && login()}
+            placeholder="ton@email.com"
+            className="w-full rounded-xl p-3 text-sm outline-none"
+            style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary }}
+            autoFocus
+          />
+          <button
+            onClick={login}
+            className="w-full py-3 rounded-xl text-sm font-medium"
+            style={{ background: COLORS.accent, color: '#101114' }}
+          >
+            Continuer
+          </button>
+        </div>
+        {loginError && (
+          <p className="text-xs text-center" style={{ color: '#FF6B6B' }}>
+            {loginError}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen w-full flex justify-center" style={{ background: COLORS.bg }}>
       <style>{FONT_IMPORT}</style>
       <div className="w-full max-w-md px-5 pt-6 pb-24" style={{ color: COLORS.textPrimary }}>
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs truncate" style={{ color: COLORS.textSecondary }}>
+            {user.email}
+          </span>
+          <button onClick={logout} className="flex items-center gap-1 text-xs" style={{ color: COLORS.textSecondary }}>
+            <LogOut size={13} /> Déconnexion
+          </button>
+        </div>
         <div
           className="flex p-1 rounded-full mb-6"
           style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}
@@ -327,11 +508,11 @@ export default function PlannerApp() {
             )}
             <button
               onClick={addActivity}
-              disabled={!inputText.trim()}
+              disabled={isProcessing || !inputText.trim()}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium transition-opacity disabled:opacity-40"
               style={{ background: COLORS.accent, color: '#101114' }}
             >
-              Ajouter
+              {isProcessing ? <Loader2 size={16} className="animate-spin" /> : 'Ajouter'}
             </button>
           </div>
         </div>
