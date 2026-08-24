@@ -15,31 +15,28 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new Database(path.join(DATA_DIR, 'productif.db'));
 db.pragma('journal_mode = WAL');
 
+// Pas de notion d'utilisateur : appli mono-utilisateur, aucune connexion requise.
 db.exec(`
   CREATE TABLE IF NOT EXISTS activities (
     id TEXT PRIMARY KEY,
-    user_email TEXT NOT NULL,
     title TEXT NOT NULL,
     date TEXT NOT NULL,
     time TEXT,
     created_at TEXT NOT NULL
   );
-  CREATE INDEX IF NOT EXISTS idx_activities_user ON activities(user_email);
 `);
 
 function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
-export function listActivities(userEmail) {
-  return db
-    .prepare('SELECT id, title, date, time FROM activities WHERE user_email = ? ORDER BY date, time')
-    .all(userEmail);
+export function listActivities() {
+  return db.prepare('SELECT id, title, date, time FROM activities ORDER BY date, time').all();
 }
 
-export function insertActivities(userEmail, activities) {
+export function insertActivities(activities) {
   const insert = db.prepare(
-    'INSERT INTO activities (id, user_email, title, date, time, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    'INSERT INTO activities (id, title, date, time, created_at) VALUES (?, ?, ?, ?, ?)'
   );
   const now = new Date().toISOString();
   const inserted = [];
@@ -47,7 +44,7 @@ export function insertActivities(userEmail, activities) {
   const runAll = db.transaction((items) => {
     for (const a of items) {
       const id = genId();
-      insert.run(id, userEmail, a.title, a.date, a.time || null, now);
+      insert.run(id, a.title, a.date, a.time || null, now);
       inserted.push({ id, title: a.title, date: a.date, time: a.time || null });
     }
   });
@@ -56,7 +53,7 @@ export function insertActivities(userEmail, activities) {
   return inserted;
 }
 
-export function deleteActivity(userEmail, id) {
-  const result = db.prepare('DELETE FROM activities WHERE id = ? AND user_email = ?').run(id, userEmail);
+export function deleteActivity(id) {
+  const result = db.prepare('DELETE FROM activities WHERE id = ?').run(id);
   return result.changes > 0;
 }
